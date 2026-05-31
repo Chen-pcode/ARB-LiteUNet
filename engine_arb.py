@@ -2,8 +2,31 @@ import numpy as np
 from tqdm import tqdm
 import torch
 from sklearn.metrics import confusion_matrix
+import os
+from PIL import Image
 
-from utils import save_imgs
+
+def _to_uint8_image(img):
+    img = img.squeeze(0).permute(1, 2, 0).detach().cpu().numpy()
+    img = img.astype(np.float32)
+    img = (img - img.min()) / (img.max() - img.min() + 1e-6)
+    return (img * 255).clip(0, 255).astype(np.uint8)
+
+
+def _to_rgb_mask(mask):
+    mask = np.squeeze(mask)
+    mask = (mask > 0.5).astype(np.uint8) * 255
+    return np.stack([mask, mask, mask], axis=-1)
+
+
+def _save_prediction(img, mask, pred, idx, save_path, threshold=0.5, test_data_name=None):
+    os.makedirs(save_path, exist_ok=True)
+    image_np = _to_uint8_image(img)
+    mask_np = _to_rgb_mask(mask)
+    pred_np = _to_rgb_mask(pred >= threshold)
+    canvas = np.concatenate([image_np, mask_np, pred_np], axis=1)
+    prefix = f"{test_data_name}_" if test_data_name is not None else ""
+    Image.fromarray(canvas).save(os.path.join(save_path, f"{prefix}{idx}.png"))
 
 
 def _calculate_hd95_list(preds_list, gts_list, threshold=0.5):
@@ -135,7 +158,7 @@ def test_one_epoch(test_loader, model, criterion, logger, config, test_data_name
             gts.append(msk_np)
             preds.append(out_np)
             if save_root is not None and i % config.save_interval == 0:
-                save_imgs(img, msk_np, out_np, i, save_root, config.datasets, config.threshold, test_data_name=test_data_name)
+                _save_prediction(img, msk_np, out_np, i, save_root, config.threshold, test_data_name=test_data_name)
 
     metrics = _collect_metrics(preds, gts, config.threshold)
     avg_hd95 = _calculate_hd95_list(preds, gts, config.threshold)

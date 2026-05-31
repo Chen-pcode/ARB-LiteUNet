@@ -173,8 +173,10 @@ class SoftBoundaryGenerator(nn.Module):
         self.register_buffer("sobel_y", sobel_y.view(1, 1, 3, 3))
 
     def forward(self, mask):
-        gx = F.conv2d(mask, self.sobel_x, padding=1)
-        gy = F.conv2d(mask, self.sobel_y, padding=1)
+        sobel_x = self.sobel_x.to(device=mask.device, dtype=mask.dtype)
+        sobel_y = self.sobel_y.to(device=mask.device, dtype=mask.dtype)
+        gx = F.conv2d(mask, sobel_x, padding=1)
+        gy = F.conv2d(mask, sobel_y, padding=1)
         edge = torch.sqrt(gx.pow(2) + gy.pow(2) + 1e-6)
         edge = edge / (edge.amax(dim=(2, 3), keepdim=True) + 1e-6)
         edge = F.max_pool2d(edge, kernel_size=3, stride=1, padding=1)
@@ -249,7 +251,7 @@ class BoundaryRegionFusion(nn.Module):
     def __init__(self, channels):
         super().__init__()
         self.gate = nn.Sequential(
-            nn.Conv2d(channels * 4, channels, kernel_size=1, bias=False),
+            nn.Conv2d(channels * 2 + 2, channels, kernel_size=1, bias=False),
             nn.GELU(),
             nn.Conv2d(channels, channels, kernel_size=3, padding=1, groups=channels, bias=False),
             nn.GELU(),

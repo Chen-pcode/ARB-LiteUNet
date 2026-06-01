@@ -1,18 +1,111 @@
+import argparse
 import os
 import sys
 import warnings
+from datetime import datetime
+from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
+from torchvision import transforms
 
 from arb_liteunet import ARBLiteUNet
+from arb_losses import ARBCompoundLoss
 from dataset_arb import SkinLesionDataset
 from engine_arb import train_one_epoch, val_one_epoch, test_one_epoch
 from config_arb_setting import setting_config
-from utils import get_logger, get_optimizer, get_scheduler, log_config_info, set_seed
+from utils import (
+    get_logger,
+    get_optimizer,
+    get_scheduler,
+    log_config_info,
+    myNormalize,
+    myRandomHorizontalFlip,
+    myRandomRotation,
+    myRandomVerticalFlip,
+    myResize,
+    myToTensor,
+    set_seed,
+)
 
 warnings.filterwarnings("ignore")
+
+
+ABLATION_CHOICES = ("full", "no_dbs", "no_arcg", "no_brf")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train ARB-LiteUNet with reproducible ablation switches.")
+    parser.add_argument("--ablation", type=str, default="full", choices=ABLATION_CHOICES)
+    parser.add_argument("--datasets", type=str, default=None, choices=["isic17", "isic18", "ph2"])
+    parser.add_argument("--epochs", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--batch_size", type=int, default=None)
+    parser.add_argument("--num_workers", type=int, default=None)
+    parser.add_argument("--gpu_id", type=str, default=None)
+    parser.add_argument("--data_root", type=str, default=None)
+    parser.add_argument("--work_dir", type=str, default=None)
+    return parser.parse_args()
+
+
+def _dataset_path(data_root, datasets):
+    mapping = {
+        "isic17": "isic2017",
+        "isic18": "isic2018",
+        "ph2": "ph2",
+    }
+    return str(Path(data_root) / mapping.get(datasets, datasets)) + os.sep
+
+
+def _build_transforms(config):
+    config.train_transformer = transforms.Compose([
+        myNormalize(config.datasets, train=True),
+        myToTensor(),
+        myRandomHorizontalFlip(p=0.5),
+        myRandomVerticalFlip(p=0.5),
+        myRandomRotation(p=0.5, degree=[0, 360]),
+        myResize(config.input_size_h, config.input_size_w),
+    ])
+    config.test_transformer = transforms.Compose([
+        myNormalize(config.datasets, train=False),
+        myToTensor(),
+        myResize(config.input_size_h, config.input_size_w),
+    ])
+
+
+def apply_cli_config(config, args):
+    if args.datasets is not None:
+        config.datasets = args.datasets
+    if args.data_root is not None:
+        config.data_root = Path(args.data_root)
+    config.data_path = _dataset_path(config.data_root, config.datasets)
+
+    for attr in ("epochs", "seed", "batch_size", "num_workers", "gpu_id"):
+        value = getattr(args, attr)
+        if value is not None:
+            setattr(config, attr, value)
+
+    config.ablation = args.ablation
+    config.model_config["use_arcg"] = args.ablation != "no_arcg"
+    config.model_config["use_brf"] = args.ablation != "no_brf"
+
+    if args.ablation == "no_dbs":
+        config.criterion = ARBCompoundLoss(boundary_supervision_weight=0.0, surface_supervision_weight=0.0)
+    else:
+        config.criterion = ARBCompoundLoss()
+
+    _build_transforms(config)
+
+    if args.work_dir is not None:
+        config.work_dir = args.work_dir.rstrip("/\\") + os.sep
+    else:
+        stamp = datetime.now().strftime("%A_%d_%B_%Y_%Hh_%Mm_%Ss")
+        config.work_dir = os.path.join(
+            "results",
+            f"{config.network}_{config.datasets}_{args.ablation}_seed{config.seed}_{stamp}",
+        ) + os.sep
+    return config
 
 
 def main(config):
@@ -81,4 +174,4 @@ def main(config):
 
 
 if __name__ == "__main__":
-    main(setting_config)
+    main(apply_cli_config(setting_config, parse_args()))

@@ -71,7 +71,14 @@ class SurfaceAwareLoss(nn.Module):
 
 
 class ARBCompoundLoss(nn.Module):
-    def __init__(self, deep_weights=None, boundary_weights=None, deep_supervision_weight=0.4, boundary_supervision_weight=0.3):
+    def __init__(
+        self,
+        deep_weights=None,
+        boundary_weights=None,
+        deep_supervision_weight=0.4,
+        boundary_supervision_weight=0.3,
+        surface_supervision_weight=0.2,
+    ):
         super().__init__()
         self.seg_loss = BceDiceLoss(1.0, 1.0)
         self.boundary_loss = BceDiceLoss(1.0, 1.0)
@@ -81,6 +88,7 @@ class ARBCompoundLoss(nn.Module):
         self.boundary_weights = boundary_weights or [0.1, 0.2, 0.3, 0.4, 0.5]
         self.deep_supervision_weight = deep_supervision_weight
         self.boundary_supervision_weight = boundary_supervision_weight
+        self.surface_supervision_weight = surface_supervision_weight
 
     def _resize_like(self, x, ref):
         return F.interpolate(x, size=ref.shape[2:], mode="bilinear", align_corners=True)
@@ -101,4 +109,9 @@ class ARBCompoundLoss(nn.Module):
         for idx, pred in enumerate(deep_boundaries):
             boundary_loss = boundary_loss + self.boundary_weights[idx] * self.boundary_loss(self._resize_like(pred, target_boundary), target_boundary)
 
-        return final_loss + self.deep_supervision_weight * deep_loss + self.boundary_supervision_weight * boundary_loss + 0.2 * surface_loss
+        return (
+            final_loss
+            + self.deep_supervision_weight * deep_loss
+            + self.boundary_supervision_weight * boundary_loss
+            + self.surface_supervision_weight * surface_loss
+        )

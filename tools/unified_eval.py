@@ -46,7 +46,7 @@ class SegDataset(Dataset):
         return len(self.data)
 
 
-def build_model(model_name):
+def build_model(model_name, ablation="full"):
     c_list = [8, 12, 16, 32, 48, 64]
 
     if model_name == "ldeb":
@@ -58,12 +58,14 @@ def build_model(model_name):
         )
     elif model_name == "arb":
         from arb_liteunet import ARBLiteUNet
+        use_arcg = ablation != "no_arcg"
+        use_brf = ablation != "no_brf"
         model = ARBLiteUNet(
             num_classes=1,
             input_channels=3,
             c_list=c_list,
-            use_arcg=True,
-            use_brf=True,
+            use_arcg=use_arcg,
+            use_brf=use_brf,
         )
     else:
         raise ValueError(f"Unknown model: {model_name}")
@@ -117,6 +119,7 @@ def profile_model(model, input_size=(1, 3, 256, 256)):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True, choices=["ldeb", "arb"])
+    parser.add_argument("--ablation", default="full", choices=["full", "no_dbs", "no_arcg", "no_brf"])
     parser.add_argument("--weights", required=True)
     parser.add_argument("--image_dir", required=True)
     parser.add_argument("--mask_dir", required=True)
@@ -150,7 +153,7 @@ def main():
         pin_memory=True,
     )
 
-    model = build_model(args.model).cuda()
+    model = build_model(args.model, args.ablation).cuda()
     weight = torch.load(args.weights, map_location="cpu")
     model.load_state_dict(weight)
     model.eval()
@@ -223,6 +226,7 @@ def main():
 
     result = {
         "model": args.model,
+        "ablation": args.ablation,
         "dataset_name": args.dataset_name,
         "image_count": len(dataset),
         "weights": args.weights,

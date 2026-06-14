@@ -71,6 +71,12 @@ def find_latest_checkpoint(dataset, mode, seed):
     return str(max(candidates, key=rank))
 
 
+def resolve_checkpoint(dataset, mode, seed, dry_run=False):
+    if dry_run:
+        return str(REPO_ROOT / "results" / f"arb_liteunet_{dataset}_{mode}_seed{seed}_<timestamp>" / "checkpoints" / "best-epochXXX.pth")
+    return find_latest_checkpoint(dataset, mode, seed)
+
+
 def build_train_cmd(args, mode):
     cmd = [
         sys.executable,
@@ -95,12 +101,14 @@ def build_train_cmd(args, mode):
     return cmd
 
 
-def build_eval_cmd(eval_script, model_weights, image_dir, mask_dir, dataset_name, norm_dataset, save_csv):
+def build_eval_cmd(eval_script, model_weights, image_dir, mask_dir, dataset_name, norm_dataset, save_csv, ablation):
     return [
         sys.executable,
         str(eval_script),
         "--model",
         "arb",
+        "--ablation",
+        ablation,
         "--weights",
         model_weights,
         "--image_dir",
@@ -135,7 +143,7 @@ def main():
         if not args.eval:
             continue
 
-        checkpoint = find_latest_checkpoint(args.datasets, mode, args.seed)
+        checkpoint = resolve_checkpoint(args.datasets, mode, args.seed, dry_run=args.dry_run)
         run_command(
             build_eval_cmd(
                 eval_script,
@@ -145,6 +153,7 @@ def main():
                 f"{mode}_{args.datasets}_val",
                 args.datasets,
                 save_csv,
+                mode,
             ),
             dry_run=args.dry_run,
         )
@@ -157,6 +166,7 @@ def main():
                 f"{mode}_{args.datasets}_to_ph2",
                 args.datasets,
                 save_csv,
+                mode,
             ),
             dry_run=args.dry_run,
         )
